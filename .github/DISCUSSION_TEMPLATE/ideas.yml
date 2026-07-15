@@ -1,0 +1,11 @@
+name: Ideas
+description: Share your ideas for new features or improvements
+labels: ["idea"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea Description
+      description: Please describe your idea in detail.
+    validations:
+      required: true\n

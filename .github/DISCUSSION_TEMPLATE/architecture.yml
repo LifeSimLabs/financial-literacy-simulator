@@ -1,0 +1,11 @@
+name: Architecture
+description: Discuss system design, tech stack, and engineering
+labels: ["architecture"]
+body:
+  - type: textarea
+    id: architecture
+    attributes:
+      label: Architecture Topic
+      description: Describe the architectural decision or topic.
+    validations:
+      required: true\n

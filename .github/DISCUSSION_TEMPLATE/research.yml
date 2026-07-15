@@ -1,0 +1,11 @@
+name: Research
+description: Discuss financial models and simulation accuracy
+labels: ["research"]
+body:
+  - type: textarea
+    id: research
+    attributes:
+      label: Topic
+      description: What research topic would you like to discuss?
+    validations:
+      required: true\n
