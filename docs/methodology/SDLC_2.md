@@ -33,7 +33,13 @@ Jira is a software tool created by Atlassian. It is the industry standard for ma
 * **The Board:** Tickets move across a board through columns like `To Do`, `In Progress`, `In Review`, and `Done`. 
 * **Why it's useful:** It gives the whole team visibility. Everyone knows exactly who is working on what, what the current priorities are, and how much progress has been made in the current Sprint.
 
-## 5. Which methodology would best suit our specific project and why?
+## 5. Jira vs. GitHub Issues
+While Jira is the industry standard for enterprise companies, our project lives on GitHub. Here is the difference:
+
+* **GitHub Issues:** A lightweight, developer-friendly to-do list that lives right next to the code. Perfect for open-source projects. Because it's tied to the code, developers can type "Fixes #87" in a commit, and it automatically closes the issue.
+* **Jira:** A heavy-duty, standalone enterprise project management tool. It tracks complex workflows, permissions, and multi-team timelines, but can be slow and requires a lot of setup.
+
+## 6. Which methodology would best suit our specific project and why?
 For the **Financial Literacy Simulator**, an **Agile methodology using the Scrum framework** is the best choice.
 
 **Why?**
@@ -41,4 +47,4 @@ For the **Financial Literacy Simulator**, an **Agile methodology using the Scrum
 2. **Iterative Feedback:** We are building a simulator. We need to build a basic version, test it with users, see if it's actually fun and educational, and adjust. Agile embraces this kind of feedback loop.
 3. **Changing Requirements:** As we learn more about the NCFE's guidelines or Indian financial rules, we will need to pivot. Agile makes it easy to change direction at the start of any new Sprint, whereas traditional methods would lock us into an outdated plan.
 
-*Tooling Recommendation:* Since this is a public open-source project on GitHub, we can use **GitHub Projects** (which works almost exactly like Jira) to manage our Sprints and Kanban boards. It keeps the code and the project management in the exact same place!
+*Tooling Recommendation:* Since this is a public open-source project on GitHub, we can use **GitHub Issues** and **GitHub Projects** (which works almost exactly like Jira) to manage our Sprints and Kanban boards. It keeps the code and the project management in the exact same place!
