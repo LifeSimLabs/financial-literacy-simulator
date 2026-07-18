@@ -48,3 +48,30 @@ For the **Financial Literacy Simulator**, an **Agile methodology using the Scrum
 3. **Changing Requirements:** As we learn more about the NCFE's guidelines or Indian financial rules, we will need to pivot. Agile makes it easy to change direction at the start of any new Sprint, whereas traditional methods would lock us into an outdated plan.
 
 *Tooling Recommendation:* Since this is a public open-source project on GitHub, we can use **GitHub Issues** and **GitHub Projects** (which works almost exactly like Jira) to manage our Sprints and Kanban boards. It keeps the code and the project management in the exact same place!
+
+## 7. Practical Agile & SDLC Techniques (The Workflow)
+Beyond the core frameworks, successful software teams use specific mental models and tools to ensure high-quality work. Here is how these techniques flow together during a software project:
+
+### Step 1: Gathering Requirements (The 5 Ws)
+Before writing any code, you need to know exactly what to build. Instead of writing vague tasks like "Add a tax calculator," Agile teams use the **5 Ws (Who, What, Where, When, Why)** to write User Stories. 
+* *Example:* "As an Indian citizen (**Who**), I want to calculate my income tax under the new regime (**What** / **Where**), when I enter my annual salary (**When**), so that I can see how much money I will take home (**Why**)."
+
+### Step 2: Deciding What to Build (MoSCoW Prioritization)
+Once you have 100 User Stories, you categorize them to figure out what goes into the current Sprint:
+* **M - Must Have:** The app will not work without this (e.g., A working login screen).
+* **S - Should Have:** Important, but not an absolute emergency (e.g., A "Forgot Password" button).
+* **C - Could Have:** Nice to have if we have extra time (e.g., Dark Mode).
+* **W - Won't Have:** We are definitely not doing this right now (e.g., VR support).
+
+### Step 3: Estimating Effort (Planning Poker & Story Points)
+Now you know *what* to build, but how hard is it? Developers are notoriously bad at guessing hours. Instead, Agile teams use **Story Points** (often Fibonacci numbers: 1, 2, 3, 5, 8, 13) to measure *complexity*. Changing a button color might be a 1, while building a secure database might be a 13.
+
+### Step 4: Researching Unknowns ("Spikes" & Timeboxing)
+If a developer takes a 13-point task and realizes they need to integrate a live stock market API they've never used, they could easily waste weeks researching. A **Spike** is a strict time limit (e.g., exactly 4 hours). When the timer goes off, research stops, preventing "Analysis Paralysis."
+
+### Step 5: Writing Code & Fixing Bugs (Rubber Duck Debugging)
+While coding, a developer will inevitably get stuck. **Rubber Duck Debugging** is a famous technique where a developer explains their broken code line-by-line out loud to an inanimate object (like a rubber duck). By forcing the brain to translate complex logic into spoken words, they usually spot their own mistakes halfway through.
+
+### Step 6: Post-Mortem (The 5 Whys for Root Cause Analysis)
+When the code is finished but a massive bug still makes it to production, teams ask "Why?" five times to find the systemic root cause, rather than just fixing the surface code.
+* *Example:* The app crashed -> *Why?* Database ran out of memory -> *Why?* A user's save loop got stuck -> *Why?* The developer misunderstood the function -> *Why?* (Root Cause): We don't require automated tests or code reviews. The fix is changing the team's process, not just fixing the loop!
