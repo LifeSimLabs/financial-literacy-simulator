@@ -1,23 +1,23 @@
 # 10. Database Design
 
 ## 1. Purpose
-This document defines the Amazon DynamoDB schema for the project using a Single-Table Design pattern.
+This document defines the database schema for the project. While we are currently using **MongoDB Atlas (Free Tier)** for the MVP, the schema is designed using a **Single-Table (Single-Collection) Design** pattern to ensure a seamless future migration to **Amazon DynamoDB**.
 
 ## 2. Scope
-Covers the partition keys, sort keys, indexes, and access patterns required to support the MVP APIs.
+Covers the core entity keys, indexes, and access patterns required to support the MVP APIs.
 
 ## 3. Definitions
-* **PK:** Partition Key. Determines physical storage node.
-* **SK:** Sort Key. Determines sorting order within a partition.
-* **GSI:** Global Secondary Index.
+* **PK (Partition Key):** In MongoDB, this acts as the primary indexed field for grouping related documents.
+* **SK (Sort Key):** In MongoDB, this is the secondary indexed field used for sorting or filtering within a partition.
+* **GSI (Global Secondary Index):** Alternative indexes created on other fields.
 
-## 4. The Single Table: `fls-main-table`
+## 4. The Single Collection: `fls_main_collection`
 
-We store multiple entity types (Users, States, Historical snapshots) in the exact same table by using composite keys.
+We store multiple entity types (Users, States, Historical snapshots) in the exact same collection by using composite keys (PK and SK).
 
 ### 4.1 Schema Definition
-*   **Partition Key (String):** `PK`
-*   **Sort Key (String):** `SK`
+*   **Partition Key Field (String):** `PK`
+*   **Sort Key Field (String):** `SK`
 
 ### 4.2 Entity Mapping
 

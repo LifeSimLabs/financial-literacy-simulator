@@ -19,7 +19,7 @@ src/
  │   ├── math.ts     # Compound interest formulas.
  │   ├── events.ts   # RNG hazard generators.
  │   └── loop.ts     # The monthly state transition function.
- ├── repositories/   # DynamoDB DocumentClient interactions.
+ ├── repositories/   # MongoDB / Mongoose DB interactions.
  ├── middlewares/    # JWT Auth, Zod Validation, Error handling.
  ├── models/         # TypeScript interfaces (PlayerState, History).
  └── utils/          # Logger, Config, Constants.
