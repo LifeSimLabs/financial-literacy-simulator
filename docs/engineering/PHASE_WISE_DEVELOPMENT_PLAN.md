@@ -1,6 +1,6 @@
 # Financial Literacy Simulator: Phase-Wise Development Plan
 
-> **Note to the Engineering Team:** This is a living execution document. It defines *how* we build the simulator, step by step. Do not rewrite architecture here; follow the established `docs/architecture/MASTER_PLAN.md` as the source of truth for *what* we are building.
+> **Note to the Engineering Team:** This is the canonical engineering source of truth for the Financial Literacy Simulator. It defines *what* we are building and *how* we build it, from product vision through architecture, implementation, deployment, and future scaling. Supplementary research, NCFE analysis, and competitor benchmarks are archived in `docs/research/`. This document takes precedence over all other planning artifacts.
 
 ---
 
@@ -88,41 +88,504 @@ Both platforms are treated as first-class citizens:
 # Section 2: Platform Strategy
 
 ## Overview
-The layout system scales across desktop web layouts and mobile screens dynamically using Tailwind CSS responsive utilities.
+To maximize reach and educational impact, the Financial Literacy Simulator adopts a multi-platform strategy. While the core mathematical engine (backend) is shared, the client-side experience is tailored to specific platforms. 
 
-## Responsive Layout System & Accessible Interface Design
+## Web Application (Primary Platform for MVP)
+The web application serves two distinct purposes:
+- **Marketing & Landing Pages:** Public-facing SEO-optimized pages designed to acquire users, explain the value proposition, and host the pitch deck/startup resources.
+- **Simulation Dashboard (SPA):** The core authenticated experience. Optimized for longer, focused play sessions on desktop or tablet devices where users can analyze complex charts and data tables comfortably.
+- **Progressive Web App (PWA):** As a future enhancement, the web app will be configured as a PWA, allowing users to "install" it on their desktop or Android devices for offline cache support.
 
-### 1. Web Layout (Desktop / Tablet)
+## Mobile Application (Target for Seed Phase)
+The mobile application is critical for establishing daily behavioral habits (e.g., checking emergency funds, responding to notifications).
+- **Core Experience:** A focused, vertical layout prioritizing quick actions (e.g., swiping to pay a bill, tapping to view a simplified net-worth KPI). 
+- **Push Notifications:** The primary driver for retention. The app will simulate real-time financial events (e.g., "Your credit card bill is due in 3 days!").
+- **Biometric Security:** Leveraging FaceID/TouchID to reinforce the "real banking app" simulation.
+
+## Admin Dashboard (Future Capability)
+A restricted internal portal used by the founding team (and eventually B2B partners/teachers) to:
+- Monitor aggregate user performance (e.g., "70% of players go bankrupt by month 40").
+- Manage the Event Dictionary (injecting new fraud scenarios based on real-world news).
+- Manage user accounts and support tickets.
+
+## Platform Responsibilities
+- **Backend (API):** The single source of truth. Handles all math, state transitions, and database queries. Completely platform-agnostic.
+- **Web Client:** Handles detailed reporting, complex data visualization, and user acquisition (SEO).
+- **Mobile Client:** Handles daily engagement, push notifications, and simplified decision-making.
+
+## Shared vs. Specific Features
+
+### Shared Features (Both Web and Mobile)
+- Authentication (Login / Signup).
+- Core Simulation Loop (Advancing months, making investments, paying debt).
+- Leaderboards and Achievements.
+- User Profile and Settings.
+
+### Web-Specific Features
+- Deep-dive Analytics (Multi-axis charts for 50-year projections).
+- Admin Dashboard access.
+- Marketing Landing Pages.
+
+### Mobile-Specific Features
+- Native Push Notifications.
+- Biometric Login.
+- "Swipe-to-invest" micro-interactions.
+- Haptic feedback during major financial events (e.g., heavy vibration during a "Market Crash" or "Fraud" event).
+
+---
+
+# Section 3: Technology Strategy
+
+## Overview
+The technology stack is selected to optimize for developer velocity, strict type safety, and scalability. We are adopting a **TypeScript-first monorepo** approach. Sharing the same language across the frontend, mobile app, and backend reduces context switching and allows us to share interface definitions (e.g., the `PlayerState` JSON schema).
+
+## Frontend (Web & Mobile)
+- **Web Framework:** React 18+ (via Vite). Selected over Next.js because the core dashboard is a highly interactive, stateful SPA that does not require Server-Side Rendering (SSR) for SEO. 
+- **Marketing Site:** A separate lightweight Next.js or Astro app strictly for SEO and fast page loads, distinct from the React SPA.
+- **Mobile Framework:** React Native (Expo). Allows us to reuse up to 70% of the React web components and business logic while delivering native iOS/Android builds.
+- **Styling:** Tailwind CSS. Enables rapid prototyping and maintains a strict, consistent design system across both web and mobile (via NativeWind).
+- **State Management:** Zustand. Much lighter and less boilerplate-heavy than Redux, perfect for syncing the global simulation state.
+
+## Backend
+- **Framework:** Node.js with Express.js. 
+- **Language:** TypeScript (Strict Mode).
+- **Validation:** Zod. Crucial for validating incoming JSON payloads against our expected schemas before they touch the math engine.
+- **Architecture:** Modular Monolith. The system is split logically into domains (Auth, Simulation, Users) but deployed as a single service for simplicity.
+
+### Middleware Architecture & Authorization Pipeline
+**Purpose**: Guarantees that every incoming API request is securely identified, validated, and authorized before touching business logic.
+
+```mermaid
+graph LR
+    classDef req fill:#e0f2fe,stroke:#0284c7,stroke-width:2px;
+    classDef guard fill:#fef3c7,stroke:#d97706,stroke-width:2px;
+    classDef action fill:#dcfce3,stroke:#22c55e,stroke-width:2px;
+
+    Req[Incoming Request]:::req --> AuthN[Authentication<br/>Verify JWT]:::guard
+    AuthN --> AuthZ[Authorization<br/>Extract Role/Perms]:::guard
+    AuthZ --> PermGuard[Permission Guard<br/>Require 'write:sim']:::guard
+    PermGuard --> OwnerGuard[Resource Owner Guard<br/>Is this my data?]:::guard
+    OwnerGuard --> Handler[Route Handler<br/>Business Logic]:::action
+    Handler --> Audit[Audit Logger<br/>Record Action]:::action
+```
+*Purpose: Demonstrates the sequential defense-in-depth pipeline.*
+*Data Flow: Requests must pass through a strict sequence of express middlewares before executing the controller logic.*
+
+## Database & Storage
+- **Primary Database:** MongoDB Atlas. A highly scalable NoSQL database. We will use a Single-Collection Design pattern to store Users, Profiles, and Historical Game States together to ensure single-digit millisecond latency.
+- **Caching / Locking (Future):** Redis. Will be introduced when Multiplayer is built to handle distributed state locking (e.g., ensuring Player A and Player B both submit decisions before advancing the month).
+- **Storage:** Supabase Storage. Used for storing user avatars and hosting the static frontend assets.
+
+## Infrastructure & DevOps
+- **Authentication:** JWT (JSON Web Tokens) with short-lived access tokens and HttpOnly refresh tokens.
+- **Push Notifications:** Expo Push Notifications service (simplifies APNs/FCM integration).
+- **Analytics:** PostHog. Selected for its ability to track detailed product usage funnels and feature flags natively.
+- **Monitoring & Logging:** Sentry (for real-time error tracking and crash reports on mobile/web). Backend structured logs are streamed via Render's native log dashboard.
+- **CI/CD:** GitHub Actions. Automated workflows to run ESLint, Jest tests, and trigger deployments on merge to `main`.
+- **Deployment:** Render (for the Node.js backend container) and Vercel (for the static React frontend).
+- **Version Control:** Git (GitHub).
+- **Design Tools:** Figma (UI/UX) and Mermaid (Architecture Diagrams).
+
+---
+
+# Section 4: Authentication, Authorization & Security
+
+## Overview
+Because the Financial Literacy Simulator collects highly sensitive simulated financial behaviors, security must be bank-grade. We will implement a custom JWT-based authentication system rather than relying on heavy third-party providers (like Auth0) to keep costs near zero during the startup phase.
+
+## Authentication Architecture
+**Purpose**: Protect user progress and preserve leaderboard integrity. We utilize a secure authentication system built on standard JWT patterns and one-way password hashing.
+**Security Considerations**: Designed to resist side-channel & GPU attacks while maintaining fast application response times.
+
+```mermaid
+sequenceDiagram
+    title Registration Flow Architecture
+    actor User
+    participant Auth as Auth API
+    participant Mail as Email Service (SendGrid)
+    participant DB as MongoDB Atlas
+    
+    User->>Auth: Signup Request (Email, Password)
+    Auth->>Auth: Zod Payload Validation
+    Auth->>Auth: Argon2id Hashing
+    Auth->>DB: Save User (Status: PENDING)
+    Auth->>Mail: Transmit 6-digit Email Token
+    Mail-->>User: Delivery of OTP
+    User->>Auth: Verify OTP
+    Auth->>DB: Update Status to ACTIVE
+```
+*Purpose: Outlines the steps taken to verify a new user identity before establishing a permanent record.*
+*Security Considerations: The system secures registration by requiring a 6-character OTP sent via secure SMTP services before changing the account status.*
+
+### Dual-Token Lifecycle and Token Storage
+To protect user sessions, the backend uses a dual-token JWT architecture:
+
 ```mermaid
 graph TD
-    classDef layout fill:#fef3c7,stroke:#d97706,stroke-width:2px;
+    classDef default fill:#f9f9f9,stroke:#333,stroke-width:2px;
+    classDef security fill:#ffcccc,stroke:#cc0000,stroke-width:2px;
     
-    TopNav["Top Navigation Bar<br/>(Search, Notification System, Profile Status)"]:::layout
-    Sidebar["Sidebar Navigation<br/>- Dashboard<br/>- Asset Allocation<br/>- Debt Tracker<br/>- Tax Center"]:::layout
-    MainArea["Primary Interactive Grid Sandbox Area<br/>- KPI Indicators (Cash, Liabilities)<br/>- Active Trend Visualizations<br/>- Turn Controls"]:::layout
-    
-    TopNav --- MainArea
-    TopNav --- Sidebar
+    Login[User Login] --> Creds{Validate Credentials}
+    Creds -->|Valid| Tokens[Generate Token Pair]
+    Tokens --> Access[Access Token<br/>Response Body]:::security
+    Tokens --> Refresh[Refresh Token<br/>HttpOnly Cookie]:::security
 ```
-*Purpose: Outlines the spatial distribution of UI elements for wide screens.*
-*Design Decisions: Employs a dense data layout optimized for long engagement times.*
+*Purpose: Demonstrates the separation of token lifecycles.*
+*Security Considerations: The short-lived access token expires after 15 minutes and is kept only in client memory to protect against XSS. The long-lived refresh token is an HttpOnly, Secure, SameSite=Strict cookie protecting against client-side scripts.*
 
-### 2. Mobile Layout (iOS / Android)
+### Refresh Token Rotation with Automatic Reuse Detection
+To secure long-lived sessions, the platform uses Refresh Token Rotation (RTR) with automatic reuse detection. This strategy groups all tokens issued to a user session into a single tracking lineage defined by a `family_id`.
+
+If a refresh token is reused (indicating a potential breach), the entire token family is revoked immediately:
+```typescript
+app.post('/auth/refresh', async (req, res) => {
+  const refreshToken = req.cookies.refreshToken;
+  // Verify token and check DB...
+  if (tokenRecord.consumed) {
+    // Reuse detected: Revoke the entire token family immediately
+    await db.deleteMany({ familyId: tokenRecord.familyId });
+    res.clearCookie('refreshToken');
+    return res.status(401).json({ error: 'Security breach detected.' });
+  }
+  // Issue new pair and mark current as consumed...
+});
+```
+
+## Authorization Architecture (RBAC)
+
+**Authentication vs. Authorization:** While Authentication (AuthN) verifies *who* the user is, Authorization (AuthZ) verifies *what* the user is allowed to do. 
+
+**Why RBAC?**
+As the simulator evolves from a single-player MVP to a multiplayer educational platform used by schools, we must cleanly separate administrative powers from student powers. Role-Based Access Control (RBAC) maps permissions to predefined roles rather than directly to users, ensuring the system remains scalable.
+
+### JWT Authorization Design
+To ensure millisecond response times, the RBAC system avoids hitting the database on every request. Instead, it embeds authorization claims directly into the Access Token.
+
 ```mermaid
 graph TD
-    classDef mobile fill:#ecfeff,stroke:#06b6d4,stroke-width:2px;
-    
-    Header["Mobile Header Bar<br/>(Menu, Profile, Alerts)"]:::mobile
-    Viewport["Primary Viewport Container<br/>- Compact Scrollable KPI Cards<br/>- High-Level Trend Graphs<br/>- Core Dynamic Operations Feed"]:::mobile
-    BottomTab["Fixed Bottom Tab Menu Bar<br/>(Home, Invest, Debt, Menu Options)"]:::mobile
-    FAB["Sticky Overlaid Trigger FAB<br/>(Advance Month Turn Action)"]:::mobile
-    
-    Header --- Viewport
-    Viewport --- BottomTab
-    Viewport -.-> FAB
+    classDef client fill:#f3e8ff,stroke:#9333ea,stroke-width:2px;
+    classDef server fill:#dcfce3,stroke:#16a34a,stroke-width:2px;
+
+    Login[Login Success]:::server --> Mint[Mint JWT with Claims]:::server
+    Mint --> Return[Return Token to Client]:::server
+    Return --> ClientStore[Client stores in Memory]:::client
+    ClientStore --> Request[Attach to Auth Header]:::client
+    Request --> Verify[Server Verifies Signature]:::server
+    Verify --> ReadClaims[Server Reads Role/Permissions from JWT]:::server
+    ReadClaims --> Allow[Grant or Deny Access]:::server
 ```
-*Purpose: Outlines the mobile-optimized vertical structure.*
-*Design Decisions: Uses a sticky Bottom Tab and FAB (Floating Action Button) to keep navigation and core actions within thumb reach.*
+*Purpose: Outlines the stateless authorization lifecycle.*
+*Design Decisions: Embedding permissions in the JWT prevents DB bottlenecks, but requires the token to be short-lived (15 mins) so revoked permissions propagate quickly.*
+
+**JWT Embedded Claims Payload:**
+- `userId`: Identifier for the resource owner check.
+- `role`: The primary role (e.g., `PLAYER`).
+- `permissions`: An array of granted actions (e.g., `['read:sim', 'write:sim']`).
+- `sessionId`: For tracking global logouts.
+- `tokenVersion`: Allows immediate invalidation of tokens if permissions change mid-session.
+- `tenantId`: (Future) Associates the user with a specific school or institution.
+
+## User Roles & Role Hierarchy
+Roles are introduced progressively as the platform expands.
+
+```mermaid
+graph TD
+    classDef super fill:#fee2e2,stroke:#b91c1c,stroke-width:2px;
+    classDef admin fill:#fef3c7,stroke:#d97706,stroke-width:2px;
+    classDef staff fill:#e0f2fe,stroke:#0284c7,stroke-width:2px;
+    classDef user fill:#f3f4f6,stroke:#4b5563,stroke-width:2px;
+
+    SuperAdmin[Super Admin]:::super --> SystemAuditor[System Auditor]:::super
+    SuperAdmin --> InstitutionAdmin[Institution Admin]:::admin
+    SuperAdmin --> ContentManager[Content Manager]:::admin
+    
+    InstitutionAdmin --> Educator[Educator / Teacher]:::staff
+    ContentManager --> Moderator[Moderator]:::staff
+    
+    Educator --> PremiumPlayer[Premium Player]:::user
+    Moderator --> Player[Player]:::user
+    Player --> Guest[Guest]:::user
+```
+*Purpose: Demonstrates the hierarchical inheritance of permissions across roles.*
+
+**Phase 1 (MVP) Roles:**
+- **Guest:** Unauthenticated user. Can read marketing pages.
+- **Player:** The standard authenticated user. Owns their simulation state.
+- **Admin:** Internal team. Has global read/write access to user accounts and the hazard dictionary.
+
+**Phase 2 Roles:**
+- **Moderator:** Reviews multiplayer household names and handles basic support tickets.
+- **Content Manager:** Updates the financial math constants, tax slabs, and hazard scenarios without touching user data.
+
+**Phase 3 Roles (B2B Startup Target):**
+- **Institution Admin:** A school principal or IT admin. Can manage Educators and global analytics for their specific `tenantId`.
+- **Educator:** A teacher. Can view the progress of students within their assigned classroom.
+- **Premium Player:** A user with a paid subscription, unlocking advanced AI coach features.
+
+**Phase 4 Roles:**
+- **Super Admin:** Ultimate root authority.
+- **Support Engineer:** Can assume a user's session (Impersonation) to debug broken simulation states.
+- **System Auditor:** Read-only access to all financial models and security logs.
+
+## Permission Matrix & Resource Ownership
+Access control requires mapping roles to specific actions. The following matrix defines baseline permissions.
+
+| Domain Module | Player | Educator | Admin | Super Admin |
+| :--- | :--- | :--- | :--- | :--- |
+| **Authentication** | Login, Reset Password | Same as Player | Same as Player | Same as Player |
+| **User Profile** | Edit Own Profile | Edit Own, View Student Profiles | View All | Edit All |
+| **Simulation Core** | Read/Write Own Game | Read Own + Read Students | Read All | Full Access |
+| **Investments/Debt** | Read/Write Own | Read Own + Read Students | Read All | Full Access |
+| **Hazard Library** | Read Global Dictionary | Read Global Dictionary | Create, Edit, Delete | Full Access |
+| **Tax Rules** | Read Global Logic | Read Global Logic | Edit Parameters | Full Access |
+| **Leaderboards** | View Global & Friends | View Classroom Leaderboard | View All | View All |
+| **Analytics/Reports** | View Own Reports | View Classroom Aggregates | View Global KPIs | Full Access |
+| **Administration** | - | Manage Classroom Setup | Ban Users, Manage Events | Manage Roles, Billing |
+
+### Resource Ownership Guards
+Simply having the `write:sim` permission is insufficient. The middleware enforces Resource Ownership:
+- **Rule 1:** A `PLAYER` can only `GET /api/simulation/state` if the `userId` in the JWT matches the `userId` of the requested simulation document.
+- **Rule 2:** `PLAYER` A cannot modify `PLAYER` B's investments.
+- **Rule 3:** An `EDUCATOR` can view multiple simulations, but *only* if those users belong to the Educator's `tenantId` (Classroom).
+- **Rule 4:** `ADMIN` roles bypass standard ownership checks but are strictly recorded by the Audit Logger.
+
+## Security Architecture
+
+### Authenticated State Variables
+| Storage Layer Location | Lifecycle Horizon | Exposing Targets | Defensive Countermeasures |
+| :--- | :--- | :--- | :--- |
+| **User Access Token** | 15 Minutes | Client memory space | Prevent local storage write-outs to stop XSS extraction. |
+| **Refresh Identity Token** | 7 Days | Network Cookie Engine | Enforce SameSite=Strict, Secure, and HttpOnly attributes. |
+| **Password Entropy Values** | Indefinite | Database Hash | Use Argon2id iterations to slow down GPU cracking. |
+| **OTP Code** | 15 Minutes | External SMTP payload | Apply short expirations, single-use codes, and strict rate limits. |
+
+### Data Protection
+- **Password Hashing:** Passwords must be hashed using **Argon2** (preferred over Bcrypt for resistance to GPU cracking).
+- **Password Salting:** A unique, cryptographically secure salt is generated per user and combined with the Argon2 hash.
+
+### Argon2id Computational Parameters
+Passwords are protected using Argon2id. Parameters are tuned to balance security and server performance:
+```typescript
+import argon2 from 'argon2';
+
+const hashConfig = {
+  type: argon2.argon2id,         // Resist side-channel & GPU attacks
+  memoryCost: 65536,             // 64 MiB memory hardness
+  timeCost: 3,                   // 3 iterations over memory lanes
+  parallelism: 4,                // 4 parallel execution threads
+  saltLength: 16,                // Minimum 128-bit unique salt value
+  hashLength: 32,                // 256-bit output hash width
+};
+```
+
+### API Protection
+- **CORS:** Strictly configured to only allow requests from the exact frontend origin (`https://simulator.example.com`).
+- **CSRF Protection:** Handled inherently by keeping the Access Token in memory and only using the HttpOnly cookie for the `/refresh` endpoint.
+- **Rate Limiting:** IP-based rate limiting (e.g., 5 login attempts per minute) via an Express middleware (e.g., `express-rate-limit`) to prevent brute force attacks.
+- **CAPTCHA:** Google reCAPTCHA v3 will be implemented on the Signup and Forgot Password routes to prevent bot spam.
+
+### Account Lifecycle
+- **Deactivate Account:** Soft delete. The `User` record in MongoDB Atlas is marked `isActive: false`. The user can log back in to reactivate.
+- **Delete Account (GDPR/CCPA Compliance):** Hard delete. A background worker permanently scrubs the `User`, `Profile`, and all associated `History` records.
+
+### Compliance & Tracking
+- **Security Logs:** Failed login attempts and password changes are logged with the timestamp and IP address, surfaced via Sentry and Render's structured log stream.
+- **Device Tracking:** (Future) When a new device logs in, an email alert ("New Login from Mac OS") is triggered.
+- **Legal Policies:** Enforced checkboxes during signup for Privacy Policy, Terms of Service, and Cookie Policy.
+
+---
+
+# Section 5: Onboarding Experience
+
+## Overview
+The onboarding flow is the most critical funnel in the application. It bridges the gap between account creation and the first simulation tick. It must collect enough data to generate an accurate starting `PlayerState` while keeping friction low enough to prevent drop-off.
+
+## The Onboarding Funnel (Step-by-Step)
+**Purpose**: Manages account initialization, converting user inputs into an authenticated profile document and a baseline simulation state.
+
+```mermaid
+graph LR
+    classDef step fill:#e0f2fe,stroke:#0284c7,stroke-width:2px;
+    
+    C[Consent Verification]:::step --> P[Profile Setup]:::step
+    P --> A[Archetype Select]:::step
+    A --> G[Goals Calibration]:::step
+    G --> T[Interactive Tutorial]:::step
+```
+*Purpose: Outlines the sequential funnel to initialize a player's first simulation.*
+*Data Flow: Proceeds strictly sequentially. Blocked until completion.*
+
+### Step 1: Consent Verification
+Explains the simulation's educational focus. The user must check standard terms and privacy checkboxes before starting.
+
+### Step 2: Profile Setup
+The user enters a nickname, selects an avatar icon, and chooses a language (e.g., English or Hindi).
+
+### Step 3: Financial Archetype Selection
+The player selects one of three core archetypes: Student, New Entrant, or Farmer. This selection sets the user's initial cash, debt balances, and baseline income.
+
+### Step 4: Goals Calibration
+The user adjusts sliders to customize their simulated age, risk tolerance (Conservative, Balanced, or Active), and long-term goal (e.g., Early Retirement or Home Ownership).
+
+### Step 5: Notification Preferences (Crucial for Mobile)
+Explains and requests permission to receive push notifications on mobile, which are used to simulate monthly billing alerts.
+
+### Step 6: Interactive Tutorial
+A step-by-step introduction where the system guides the user through making their first deposit and ending their first month.
+
+## Technical Implementation Details
+**Client-Side Flow Control via State Machine**
+The onboarding flow uses an XState-based machine to handle back and forward transitions while preventing users from bypassing key setup steps.
+
+```javascript
+import { createMachine } from 'xstate';
+
+const onboardingMachine = createMachine({
+  id: 'onboarding',
+  initial: 'consent',
+  states: {
+    consent: { on: { ACCEPT: 'profile' } },
+    profile: { on: { NEXT: 'archetype', BACK: 'consent' } },
+    archetype: { on: { SELECT: 'calibration', BACK: 'profile' } },
+    calibration: { on: { SUBMIT: 'notifications', BACK: 'archetype' } },
+    notifications: { on: { PERMIT: 'tutorial', SKIP: 'tutorial', BACK: 'calibration' } },
+    tutorial: { on: { COMPLETE: 'simulationActive' } },
+    simulationActive: { type: 'final' }
+  }
+});
+```
+
+When the tutorial concludes, the onboarding client registers the initialization parameters by dispatching a payload to the database:
+```typescript
+// Onboarding Initialization Structure (POST /api/users/onboard)
+interface OnboardingPayload {
+  userId: string;
+  displayName: string;
+  avatarId: string;
+  language: 'EN' | 'HI';
+  archetype: 'STUDENT' | 'NEW_ENTRANT' | 'FARMER';
+  riskAppetite: 'CONSERVATIVE' | 'MODERATE' | 'AGGRESSIVE';
+  primaryGoal: 'BUY_HOUSE' | 'RETIRE_EARLY' | 'CLEAR_DEBT';
+  allowNotifications: boolean;
+}
+```
+
+---
+
+# Section 6: Information Architecture
+
+## Overview
+The Information Architecture (IA) defines the complete hierarchy and routing structure of the application across both web and mobile. It is intentionally shallow (maximum 3 clicks to reach any core feature) to ensure high engagement.
+
+## Structured Information Architecture & System Routing
+| Route Endpoint | Authentication Rules | UI Template Layout | Primary Functional Interface Component |
+| :--- | :--- | :--- | :--- |
+| `/about` | Unauthenticated | Static Marketing Frame | System objective models and educational methodology. |
+| `/auth/login` | Unauthenticated | Standard Security Container | Standard login form. |
+| `/auth/signup` | Unauthenticated | Standard Security Container | Standard signup form with password validation. |
+| `/auth/verify-email` | Unauthenticated | Standard Security Container | Six-character email verification code entry. |
+| `/onboarding` | Authenticated | Focused Wizard Page | Profile setup, archetype select, and initial calibration screens. |
+| `/dashboard` | Authenticated (JWT Required) | Left-Sidebar Frame | Main page displaying the active game month and net worth indicators. |
+| `/investments` | Authenticated (JWT Required) | Left-Sidebar Frame | Direct access panels to fixed deposits, stocks, and mutual funds. |
+| `/debt` | Authenticated (JWT Required) | Left-Sidebar Frame | Credit lines, amortizing home loans, and repayment controls. |
+| `/reports/tax` | Authenticated (JWT Required) | Left-Sidebar Frame | Displays annual tax estimations and standard deductions. |
+| `/admin/events` | Admin Credentials Only | Standard Management Panel | Configuration controls for randomized scenario structures. |
+
+## RESTful API Endpoints
+The application uses clean, standard RESTful paths to make calls to resources, which maps to the endpoints handled by the Express routing components. Every protected endpoint is wrapped in the RBAC middleware chain.
+- `GET /api/simulation/state`: Retrieves the player's financial parameters for the active month. **[Guards: RequireAuth, ResourceOwner]**
+- `POST /api/simulation/turn`: Executes calculations and advances the simulation to the next month. **[Guards: RequireAuth, ResourceOwner]**
+- `POST /api/simulation/investments/allocate`: Allocates a portion of cash reserves to a specified investment instrument. **[Guards: RequireAuth, RequirePermission('write:sim'), ResourceOwner]**
+- `POST /api/simulation/debt/repay`: Process extra principal payments toward an active loan. **[Guards: RequireAuth, RequirePermission('write:sim'), ResourceOwner]**
+- `POST /api/admin/hazards`: Creates a new digital hazard event. **[Guards: RequireAuth, RequireRole('ADMIN')]**
+
+---
+
+# Section 7: Screen Inventory
+
+## Overview
+This section details the functional requirements for the highest-priority screens. It defines exactly what UI components are needed, what backend APIs power them, and how they handle edge cases.
+
+## Deep-Dive Screen Inventory & Functional Requirements
+**Purpose**: Defines the structural requirements, API dependencies, and validation rules for the simulator's core layouts.
+
+### 1. The Main Dashboard
+**Objective:** Serves as the primary workspace hub, rendering a consolidated view of net worth and cash balances prior to initiating the next simulation turn.
+**API Interactions:** Fetches the active status snapshot using `GET /api/simulation/state`.
+**Required Layout Elements:**
+- **Net Worth Display Panel:** An animated numeric display showing the current net worth.
+- **Liquid Cash Panel:** Shows the available funds for discretionary actions.
+- **Active Graph Overlay:** Displays the six-month trend line of assets versus liabilities.
+- **Trigger Control (FAB):** Prominent button to end the current month.
+**Validation Rules:** The turn button is disabled if there are unresolved hazard events or pending regulatory decisions.
+**Error Handling:** A React boundary isolates rendering crashes, showing a fallback panel that lets the user restart the step.
+
+### 2. Asset Allocation Panel
+**Objective:** Allows players to purchase or redeem stocks, mutual funds, and fixed deposits.
+**API Interactions:** Allocates or redrafts assets using `POST /api/simulation/investments/allocate`.
+**Required Layout Elements:**
+- **Instrument Tabs:** Categorized panels for Fixed Deposits, Mutual Funds, and Equity Lines.
+- **Performance Chart:** Shows historical returns and projected growth over time.
+- **Trade Controller Dialog:** Floating entry interface featuring numeric slider controls.
+**Validation Rules:** The interface prevents trades that exceed the player's available cash.
+**Viewport Behavior:** Desktop viewports display the asset details alongside the performance chart in a double-pane layout, while mobile screens collapse this into a single view with collapsible details.
+
+### 3. Debt Management Interface
+**Objective:** Displays outstanding loan principals, interest structures, credit ratings, and pre-payment interfaces.
+**API Interactions:** Deducts principal balances using `POST /api/simulation/debt/repay`.
+**Required Layout Elements:**
+- **Indicator Ring (Credit Rating):** Displays the player's credit rating (300 to 900) using color-coded performance arcs.
+- **Active Liability Stack:** A list showing the principal, remaining term, and EMIs for all outstanding loans.
+- **Pre-Payment Slider:** Lets users apply extra cash toward principal reduction.
+**Empty State Condition:** Displays a clean-state illustration when a player is entirely debt-free, with a note summarizing the long-term cash flow benefits.
+
+### 4. Dynamic Interrupt Panel (Hazard Event Dialog)
+**Objective:** Modal dialog that pauses the simulation to present Hazard Events or digital fraud scenarios.
+**API Interactions:** Posts the user's choice to `POST /api/simulation/events/resolve`.
+**Required Layout Elements:**
+- **Illustration:** Renders an image depicting the event (e.g., medical emergency, phishing scam).
+- **Narrative Copy:** Explains the scenario and its potential financial impact.
+- **Resolving Control Set:** Action buttons displaying the immediate financial or credit outcomes of each choice.
+**Validation Rules:** This is a blocking modal window that prevents simulation progress until resolved.
+
+### 5. Simulation Evaluation Summary
+**Objective:** Shows the final performance analytics when a player reaches the 50-year game-over limit.
+**API Interactions:** Pulls the historical aggregate summary via `GET /api/simulation/summary`.
+**Required Layout Elements:**
+- **Final Grade Banner:** Large, high-contrast performance grade (A to F) calculated based on final net worth and financial choices.
+- **Asset Breakdown Graph:** Interactive chart detailing the player's final asset distribution.
+- **Behavioral Performance Summary:** Text feedback pointing out recurring financial habits (e.g., herding, neglecting emergency reserves).
+- **Restart Control:** Clears the active state to initiate a new simulation run.
+
+---
+
+# Section 8: Layout System
+
+## Overview
+Because the simulator is highly data-heavy, the layout must intelligently adapt between Web (where screen real estate allows complex charts) and Mobile (where vertical scrolling and thumb-reachability are paramount).
+
+## 1. Web Layout (Desktop / Tablet)
+- **Architecture:** Persistent Left Sidebar + Top Header + Main Content Area.
+- **Sidebar:** 
+  - Fixed width (e.g., `250px`).
+  - Contains primary navigation (Dashboard, Investments, Debt, Insurance).
+  - Highlights the current active route.
+- **Top Header:** 
+  - Height (e.g., `64px`).
+  - Contains Global Search (to quickly find specific assets or terms), Notification Bell, and User Profile Dropdown.
+- **Main Content Area:** 
+  - Centered with a maximum width (`max-w-7xl`) for ultra-wide monitors to prevent text stretching.
+  - Utilizes CSS Grid for complex layouts (e.g., `grid-cols-3` where cards span multiple columns).
+
+## 2. Mobile Layout (iOS / Android)
+- **Architecture:** Top App Bar + Main Content Area + Persistent Bottom Navigation.
+- **Bottom Navigation:**
+  - Replaces the Web Sidebar.
+  - Contains max 4 icons: Home (Dashboard), Invest, Debt, Profile.
+- **Top App Bar:**
+  - Contains the Notification Bell and a Hamburger menu for secondary routes (Settings, Leaderboard).
+- **Floating Action Button (FAB):**
+  - The "Advance Month" button is a highly prominent FAB anchored to the bottom right. This ensures the primary game loop action is always a thumb-tap away.
 
 ## 3. Global UI Containers
 
@@ -149,29 +612,38 @@ graph TD
 ## Overview
 To maintain a high-quality, startup-grade aesthetic across Web and Mobile, we will build a centralized Design System. This ensures that every developer uses the exact same colors, typography, and spacing without writing custom CSS.
 
-## 1. Typography and Visual Styling System
-To build a professional, cohesive interface, developers must use the centralized design tokens defined below instead of inline styles or hardcoded CSS.
+## 1. Typography
+We use a modern, highly legible sans-serif font optimized for reading numerical data.
+- **Primary Font:** `Inter` (or `Roboto` on Android).
+- **Headings (H1-H4):** Heavy font weights (700-800), tight letter spacing.
+- **Body Text:** Regular weight (400), relaxed line height (1.5) for readability.
+- **Monospace:** `JetBrains Mono` or `Fira Code` specifically for tabular financial data (ensures numbers align vertically).
 
-| Token Group | Specific Token | Value Specification | Design Context |
-| :--- | :--- | :--- | :--- |
-| **Typography Family** | Font Primary | `Inter, system-ui, sans-serif` | Used for UI copy, menus, and labels to ensure readability. |
-| **Typography Family** | Font Tabular Data | `JetBrains Mono, Fira Code` | Used for numeric lists and tables to ensure digits align vertically. |
-| **Semantic Theme** | Brand Base | `#0f172a` (slate-900) | Primary color used to establish a stable visual weight. |
-| **Semantic Theme** | Base Interface Core | `#4f46e5` (indigo-600) | Accent color used for buttons and active states. |
-| **Semantic Theme** | Success Indicator | `#10b981` (emerald-500) | Indicates profitable growth, incoming revenue, and positive outcomes. |
-| **Semantic Theme** | Hazard Warning | `#f43f5e` (rose-500) | Indicates cash losses, growing debt, and hazard events. |
-| **UI Spacing Standard** | Spacing Factor | Multiples of 4px | Spacing values are defined as multiples of 4px to maintain layout alignment. |
-| **Accessible Ratio** | Accessibility Target | WCAG AA Compliant | Ensures a contrast ratio of at least 4.5:1 for standard text. |
+## 2. Color Palette (Semantic Tokens)
+Hardcoded hex values are forbidden in components. We rely strictly on semantic tokens.
+- **Primary Brand:** `slate-900` (Dark, trustworthy, 'banking' feel).
+- **Accent:** `indigo-600` (Used for primary CTA buttons and active states).
+- **Success (Green):** `emerald-500` (Used for Income, Profit, Portfolio Growth).
+- **Danger (Red):** `rose-500` (Used for Expenses, Debt, Market Crashes).
+- **Warning (Yellow):** `amber-500` (Used for low Emergency Funds, pending alerts).
+- **Backgrounds:** `gray-50` for light mode, `gray-900` for dark mode.
 
 ## 3. Spacing & Grid
 - **Spacing Scale:** Standard 4px baseline grid (e.g., `p-1` = 4px, `p-4` = 16px).
 - **Border Radius:** Generous rounding to feel modern and friendly (`rounded-xl` for cards, `rounded-full` for buttons).
 
-## 4. Core Components & Viewport Adaptation
-To maintain a high-quality user experience, components adapt based on the user's viewport:
-- **Grid Systems vs. Vertical Cards:** High-density grids on desktop convert to vertically stacked, scrollable cards on mobile to reduce horizontal clutter.
-- **Data Tables vs. Detail Lists:** Desktop tables displaying transaction histories render as collapsible, touch-friendly list items on mobile devices.
-- **Center Modals vs. Slide-up Sheets:** Interactions requiring user confirmation use centered modals on desktop and slide-up bottom sheets on mobile to keep inputs within thumb reach.
+## 4. Core Components
+All components must be built as reusable, stateless React components before being used in features.
+- **Buttons:** 
+  - *Primary:* Solid accent background, white text.
+  - *Secondary:* Outline only, transparent background.
+  - *Ghost:* No border, no background, accent text on hover.
+  - *State:* All buttons must have explicit `:hover`, `:active`, and `:disabled` states.
+- **Forms & Inputs:**
+  - Standardized label sizing, placeholder text color, and focus rings (`ring-2 ring-indigo-500`).
+  - Strict error states (red borders and micro-copy below the input).
+- **Charts:**
+  - Consistent tooltips and axis styling across Recharts/Victory.
 
 ## 5. Animations & Micro-Interactions
 To make the application feel "alive", we will implement:
@@ -191,83 +663,43 @@ To make the application feel "alive", we will implement:
 ## Overview
 This section models how the user moves between the screens defined in Section 7. Mapping these flows explicitly ensures that there are no dead-ends and that the user's journey is always purposeful.
 
-## Application State Transitions & Execution Flows
-**Purpose**: Details the state transition pathways and system interactions that drive the core game loop.
+## 1. Authentication Flow
+- **Entry:** User navigates to `/auth/login` or `/auth/signup`.
+- **Condition (Signup):** User fills form -> Clicks Submit -> Redirected to `/auth/verify-email` -> Enters OTP -> Account Created.
+- **Condition (Login):** User enters credentials -> Clicks Login -> JWT validation success.
+- **Decision Node:** 
+  - If `isFirstLogin == true` -> Redirect to `/onboarding`.
+  - If `isFirstLogin == false` -> Redirect to `/dashboard`.
 
-```mermaid
-sequenceDiagram
-    title Core Game Loop Flow
-    actor User
-    participant Dash as Dashboard
-    participant API as Backend API
-    participant DB as MongoDB Atlas
-    
-    User->>Dash: Initiates Action
-    Dash->>Dash: Zod Form Validation
-    Dash->>API: Call API
-    API->>DB: State Recalculated
-    DB-->>API: Status Returned
-    API-->>Dash: Redraw Dashboard
-    Dash->>Dash: Evaluate Game Status
-    Dash->>API: Validate Requirements Completed
-    API-->>Dash: Advance Next Month
-```
-*Purpose: Demonstrates the cyclical update of the simulation state.*
+## 2. Onboarding Flow
+- **Entry:** Redirect from Authentication Flow.
+- **Path:** Welcome (Step 1) -> Profile (Step 2) -> Archetype Selection (Step 3) -> Calibration (Step 4, optional) -> Notifications (Step 5) -> Tutorial (Step 6).
+- **Exit:** Tutorial complete -> Backend creates Month 1 state -> Redirect to `/dashboard`.
+- **Constraint:** User cannot bypass `/onboarding` by manually typing `/dashboard` in the URL if `isFirstLogin == true`. The router will force a redirect back to onboarding.
 
-### 1. User Authentication Transitions
-- **Initiation:** The user enters credentials on `/auth/login` or completes the OTP step on `/auth/verify-email`.
-- **Verification:** The API checks the inputs. If successful, it writes the access token to the client app's memory and sets the HTTP-only refresh token in the browser.
-- **Routing Logic:**
-  - If `isFirstLogin` is true, the user is redirected to the `/onboarding` onboarding flow.
-  - If `isFirstLogin` is false, the user is redirected to `/dashboard` to continue their game state.
+## 3. Core Simulation Flow (The Main Game Loop)
+- **Entry:** User is on `/dashboard`.
+- **Action (Review):** User reviews income, expenses, and current net worth.
+- **Action (Interact):** User navigates to `/investments` to buy stocks, or `/debt` to pay an EMI.
+- **Action (Advance):** User clicks "Advance Month".
+- **Decision Node (Backend Logic):**
+  - Backend calculates new balances, interest, and taxes.
+  - Backend rolls RNG (Random Number Generator) for hazard probability.
+  - *If Hazard Event triggers:* Dashboard is blocked. Hazard Event Dialog appears. User must resolve it.
+  - *If No Event triggers:* Month increments by 1. Dashboard re-renders with updated data.
+- **Exit:** User repeats this loop until Month reaches 600 (Age 60).
 
-### 2. Onboarding Initialization Flow
-- **State Locking:** If a user attempts to access `/dashboard` while their database record has `onboardingComplete: false`, the router blocks the request and redirects them to `/onboarding`.
-- **Onboarding Setup:** The user completes the 6-step setup process.
-- **Save Baseline State:** The client POSTs the setup inputs to the backend. The API builds the initial Month 1 game state document and updates the profile's `onboardingComplete` flag to true, unlocking `/dashboard`.
+## 4. End-of-Game Flow
+- **Entry:** User clicks "Advance Month" at Month 599.
+- **Path:** Simulator advances to Month 600 -> Backend flags `isGameComplete = true` -> Frontend automatically redirects to `/reports/summary`.
+- **Action:** User reviews their lifetime financial grade and stats.
+- **Exit:** User clicks "Play Again" -> Backend archives the current game -> Resets user to a new Month 1 state -> Redirect to `/dashboard`.
 
-### 3. Core Simulation Flow (The Main Game Loop)
-- **User Action:** While on `/dashboard`, the player can buy assets, repay loans, or configure insurance coverage.
-- **Submit API Request:** The client triggers an action, which goes through standard input validation:
-```typescript
-const allocateSchema = zod.object({
-  instrumentId: zod.enum(['FIXED_DEPOSIT', 'MUTUAL_FUND', 'STOCK_PORTFOLIO']),
-  amountPaisa: zod.number().positive().int(), // Enforce integer-based math calculations
-});
-```
-- **Update State:** If valid, the backend updates the database in a transaction and returns the new state, updating the dashboard display.
-- **Trigger Next Month:** The user clicks "Advance Month".
-- **System Processing:** The engine locks state inputs, processes recurring changes (interest, salaries, taxes), runs a random number generator to check for hazard events, and increments the simulation month.
-- **Hazard Triggered:** The engine returns the next month's state with an active hazard event, opening the blocking Event Modal Dialog.
-- **No Hazard:** The engine returns the updated monthly state, and the dashboard redraws the new cash balances.
+## 5. Security Flows
+- **Logout Flow:** User clicks "Logout" -> Client deletes JWT from memory -> API call to `/auth/logout` clears HttpOnly cookie -> Redirect to `/auth/login`.
+- **Session Timeout Flow:** User's Refresh Token expires -> API returns `401 Unauthorized` -> Axios Interceptor catches the 401 -> Automatically redirects to `/auth/login` with a query parameter `?reason=timeout` (displays toast: "Session expired. Please log in again.").
 
-### 4. End-of-Game Flow
-- **Final Turn Evaluation:** When processing a turn, the system checks the active index. If `month_index` reaches 600, it sets the `isGameComplete` status flag to true.
-- **Redirect to Summary:** The router blocks further access to standard control screens and redirects the client to `/reports/summary` to display the end-of-game report card.
-- **Restart Loop:** When the user clicks "Play Again", the client requests a reset. The API clears the active state and sets the timeline back to Month 1, redirecting the user back to `/dashboard`.
-
-### 5. Security Flows: Session Expiration Interceptor
-- **Automatic Expiry:** If the access token expires, client requests fail with a 401 Unauthorized status code.
-- **Session Refresh Integration:** The client interceptor pauses outgoing requests and calls the refresh endpoint:
-```typescript
-axiosInstance.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
-    if (error.response.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-      try {
-        await axios.post('/api/auth/refresh');
-        return axiosInstance(originalRequest);
-      } catch (refreshError) {
-        window.location.href = '/auth/login?reason=timeout';
-        return Promise.reject(refreshError);
-      }
-    }
-    return Promise.reject(error);
-  }
-);
-```
+---
 
 # Section 11: Feature Breakdown
 
@@ -275,86 +707,18 @@ axiosInstance.interceptors.response.use(
 This section deconstructs the product into distinct features, prioritizing what must be built now (MVP) versus what is deferred to the startup phase (Future).
 
 ## 1. Core Simulation Engine (The Math)
-**Purpose**: The core simulation loop advances month-by-month over a maximum 50-year (600-month) timeline.
-**Design Decisions**: To ensure educational value and strict repeatability, the math engine operates deterministically. It avoids floating-point compounding errors by executing calculations in integer-based paisa units before formatting the outputs for the client layer.
+- **Purpose:** Calculates the exact state of the user's finances for a given month.
+- **Business Value:** Without this, there is no product. It is the single source of truth.
+- **Dependencies:** None. Built as pure TypeScript functions.
+- **Complexity:** High (requires accurate Indian tax slab logic and compound interest).
+- **Status:** **MVP (P0)**
 
-### Systematic Investment Plan (SIP) Compounding
-Standard wealth-building screens utilize a geometric compounding formula to project and execute monthly mutual fund acquisitions. To prevent the inflated projections common in simple linear calculators, the engine models compounding monthly using the exact geometric rate of return:
-
-$$M = P \cdot \frac{(1+i)^n - 1}{i} \cdot (1+i)$$
-Where:
-- $M$ represents the final simulated maturity value.
-- $P$ represents the recurring monthly SIP contribution.
-- $n$ represents the total number of simulated investment months ($n = \text{Years} \times 12$).
-- $i$ represents the exact monthly rate of return, derived geometrically from the annual expected return rate $R$ to guarantee annual compounding parity:
-$$i = (1 + R)^{\frac{1}{12}} - 1$$
-If the system utilized the simpler arithmetic division $i = R / 12$, a projected $12\%$ annual return would incorrectly resolve to $1\%$ monthly, leading to an artificially inflated maturity balance over long-term multi-decade simulation runs.
-
-### Reducing-Balance Loan Amortization
-Debt assets (such as education loans, home loans, and credit card balances) are amortized dynamically each month. The Equated Monthly Installment ($EMI$) is calculated using the reducing-balance methodology:
-
-$$EMI = \frac{P \cdot r \cdot (1+r)^n}{(1+r)^n - 1}$$
-Where:
-- $P$ is the outstanding principal of the loan.
-- $r$ is the monthly interest rate expressed as a decimal ($R_{\text{annual}} / 1200$).
-- $n$ is the remaining repayment tenure in months.
-
-For every month $t$ in the simulation, the engine executes a three-part calculation to update the outstanding debt balance:
-$$\text{Interest Portion } (I_t) = B_{t-1} \cdot r$$
-$$\text{Principal Portion } (PRN_t) = EMI - I_t$$
-$$\text{Remaining Balance } (B_t) = \max\left(0, B_{t-1} - PRN_t\right)$$
-Where $B_{t-1}$ is the outstanding balance of the previous month. This calculation shows players that early-stage payments go primarily toward interest rather than principal reduction.
-
-### Reducing-Balance Depreciation
-Physical assets (such as vehicles or agricultural machinery) lose value over time. The engine calculates this using the reducing-balance depreciation formula, applying a fixed annual percentage rate to the asset's net book value:
-
-$$D_y = NBV_{y-1} \cdot d$$
-$$NBV_y = NBV_{y-1} - D_y$$
-Where:
-- $D_y$ represents the depreciation expense applied during year $y$.
-- $NBV_{y-1}$ is the Net Book Value of the asset at the beginning of year $y$.
-- $d$ is the constant annual depreciation rate (e.g., $0.25$ for vehicles).
-
-### Indian Income Tax Engine & Section 87A Marginal Relief
-The simulator features a detailed replication of the Indian direct tax system, executing calculations based on the provisions of the Income Tax Act. The default computational pathway leverages the New Tax Regime, modeled on the tax brackets:
-
-| Taxable Income Brackets (₹) | Applicable Tax Rate (%) |
-| :--- | :--- |
-| 0 to 4,00,000 | 0% (NIL) |
-| 4,00,001 to 8,00,000 | 5% |
-| 8,00,001 to 12,00,000 | 10% |
-| 12,00,001 to 16,00,000 | 15% |
-| 16,00,001 to 20,00,000 | 20% |
-| 20,00,001 to 24,00,000 | 25% |
-| Above 24,00,000 | 30% |
-
-For salaried players, the engine automatically applies a standard deduction of ₹75,000 under the New Tax Regime, reducing their gross simulated salary accordingly.
-
-Under the New Tax Regime, resident individuals with a net taxable income not exceeding ₹12,00,000 are eligible for a complete tax rebate under Section 87A up to a maximum limit of ₹60,000. This rebate reduces their net tax liability to zero. However, this rebate structure creates a severe "tax cliff" immediately above the ₹12,00,000 threshold. 
-
-To address this, the engine implements the Central Board of Direct Taxes (CBDT) Marginal Relief formula:
-$$T_{\text{payable}} = \min\left(T_{\text{normal}}, \text{Net Taxable Income} - 12,00,000\right)$$
-Where $T_{\text{normal}}$ is the total tax computed using the standard slab rates prior to the application of any rebate or health and education cess.
-
-**Tax Liabilities and Marginal Relief Example:**
-| Gross Income (₹) | Standard Deduction (₹) | Net Taxable Income (₹) | Normal Tax (Tnormal) (₹) | Marginal Relief Allowed (₹) | Net Tax Payable (with 4% Cess) (₹) | Effective Take-Home Income (₹) |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| 12,00,000 | 0 | 12,00,000 | 60,000 | Section 87A Rebate | 0 | 12,00,000 |
-| 12,75,000 | 75,000 | 12,00,000 | 60,000 | Section 87A Rebate | 0 | 12,75,000 |
-| 12,10,000 | 0 | 12,10,000 | 61,500 | 51,500 | 10,400 | 11,99,600 |
-| 12,50,000 | 0 | 12,50,000 | 67,500 | 17,500 | 52,000 | 11,98,000 |
-| 12,70,000 | 0 | 12,70,000 | 70,500 | 500 | 72,800 | 11,97,200 |
-| 12,75,000 | 0 | 12,75,000 | 71,250 | 0 | 74,100 | 12,00,900 |
-| 14,00,000 | 0 | 14,00,000 | 90,000 | 0 | 93,600 | 13,06,400 |
-
-## 2. The Digital Hazard Engine: Simulating Digitized Vulnerability
-**Purpose**: With the explosive growth of the Unified Payments Interface (UPI), digital payment scams have become the foremost threat to consumer protection in India. The simulator implements a dynamic "Hazard Engine" that forces players to navigate realistic transaction screens.
-
-### Common Hazard Scenarios
-- **UPI Collect Request Scam:** Triggered during standard monthly bill payment steps, this scenario sends a fake "payment request" push notification. The player must reject the incoming request. Clicking "Accept" or entering a PIN results in an immediate loss of ₹10,000 to ₹50,000 from their cash balance.
-- **Phishing / QR Code Scam:** Occurs when players attempt to sell crops or assets on simulated online peer-to-peer marketplaces. The player must decline transactions that require scanning a QR code to "receive" funds. Failure to spot the scam leads to a 30% depletion of linked bank accounts.
-- **Predatory Instant Loan Apps:** Automatically triggered when a player's cash reserves drop below zero. The application presents quick-access loans with hidden, compounding weekly interest rates that exceed 36% per annum, demonstrating the risk of informal debt traps.
-- **Mule Account Recruitment:** Models a scenario where players are offered regular payouts to route third-party transfers through their accounts. Accepting this triggers a regulatory audit, asset freezes, and an immediate credit score deduction of 200 points, illustrating current security monitoring tools like MuleHunter.AI.
+## 2. Event Dispatcher (Hazards)
+- **Purpose:** Randomly triggers life events (e.g., Job Loss, Scams) based on statistical probabilities.
+- **Business Value:** Creates the emotional engagement and "gamification" of the simulator.
+- **Dependencies:** Core Simulation Engine.
+- **Complexity:** Medium (requires balancing probabilities so the game isn't too punishing).
+- **Status:** **MVP (P0)**
 
 ## 3. Web Dashboard (SPA)
 - **Purpose:** Allows users to view their state and make financial decisions.
@@ -396,35 +760,36 @@ Where $T_{\text{normal}}$ is the total tax computed using the standard slab rate
 # Section 12: Development Roadmap
 
 ## Overview
-The development plan structures releases into progressive, manageable phases to control costs and support scaling.
+The following phases constitute the step-by-step execution plan for the engineering team. Phases 0-7 focus entirely on delivering the Minimum Viable Product (MVP) required to complete the internship, while Phase 8 represents the post-internship startup roadmap.
 
 ### Product Phasing, Feature Prioritization & Monolith-to-Distributed Roadmap
 ```mermaid
 graph LR
     classDef phase fill:#f0fdf4,stroke:#16a34a,stroke-width:2px;
     
-    P1["Phase 1: Web Core MVP<br/>(Internship Focus)"]:::phase --> P2["Phase 2: Mobile Port<br/>& Native Systems"]:::phase
-    P2 --> P3["Phase 3: Multiplayer Scales<br/>(Startup Target)"]:::phase
+    P1["Phase 1-7: Web Core MVP<br/>(Internship Focus)"]:::phase --> P2["Phase 8a: Mobile Port<br/>& Native Systems"]:::phase
+    P2 --> P3["Phase 8b: Multiplayer Scales<br/>(Startup Target)"]:::phase
 ```
-*Purpose: Outlines the strategic rollout progression.*
+*Purpose: Outlines the strategic rollout progression from MVP to startup product.*
 
-**Phase 1: Web Core MVP (Internship Focus):** Prioritizes deploying a stable, single-player web dashboard SPA using Vite and React. The server-side components run as a modular monolith, storing states in a single-collection MongoDB Atlas free instance.
-**Phase 2: Mobile Integration and Native Features:** Migrates core screens to React Native (via Expo). This phase introduces native system alerts to simulate banking app push notifications and leverages secure hardware storage for biometric authentication.
-**Phase 3: Scaled Multiplayer Ecosystem (Startup Target):** Introduces cooperative household mode, enabling multiple users to manage shared budgets, debt, and long-term financial goals in a unified simulation space.
+**Web Core MVP (Phases 1-7 — Internship Focus):** Prioritizes deploying a stable, single-player web dashboard SPA using Vite and React. The server-side components run as a modular monolith, storing all state in a single-collection MongoDB Atlas M0 free instance.  
+**Mobile Integration (Phase 8a):** Migrates core screens to React Native via Expo. Introduces native system alerts to simulate banking app push notifications and leverages secure hardware storage for biometric authentication.  
+**Scaled Multiplayer Ecosystem (Phase 8b — Startup Target):** Introduces cooperative Household mode, enabling multiple users to manage shared budgets, debt, and long-term financial goals in a unified simulation space.
 
 ### Implementation Priority
-| Product Feature | Implementation Priority | Key Technical Dependencies | Rollout Phase |
+| Product Feature | Priority | Key Technical Dependencies | Rollout Phase |
 | :--- | :--- | :--- | :--- |
-| Deterministic Calculations (Math Engine) | P0 (Critical) | Core TypeScript Libraries | Phase 1: Web Core MVP |
-| Indian Tax Engine & Section 87A Relief | P0 (Critical) | Math Engine Library | Phase 1: Web Core MVP |
-| Single-Collection Storage Schema | P0 (Critical) | MongoDB Connection Layer | Phase 1: Web Core MVP |
-| JWT Session Engine with RTR Security | P0 (Critical) | Core Cryptography Libraries | Phase 1: Web Core MVP |
-| Web Dashboard Interface SPA | P0 (Critical) | React 18 / Zustand Framework | Phase 1: Web Core MVP |
-| Dynamic Hazard Event Dispatcher | P1 (High) | Core Math Calculation Services | Phase 1: Web Core MVP |
-| React Native Native App Shell | P1 (High) | Expo Platform Configuration | Phase 2: Mobile Integration |
-| System Billing Notifications | P2 (Medium) | Server-side Cron Jobs / Expo Push SDK | Phase 2: Mobile Integration |
-| Cooperative Joint Households | P3 (Future) | Redis Locking Engine / WebSockets | Phase 3: Multiplayer Ecosystem |
-| AI Personal Finance Advisor | P3 (Future) | LLM API Integration Layer | Phase 3: Multiplayer Ecosystem |
+| Deterministic Simulation Engine (Math Core) | P0 — Critical | Core TypeScript Libraries | Phase 2: Simulation Core |
+| Indian Tax Engine & Section 87A Relief | P0 — Critical | Simulation Engine | Phase 2: Simulation Core |
+| Single-Collection Storage Schema (MongoDB) | P0 — Critical | MongoDB Atlas Connection | Phase 3: Backend Development |
+| JWT Session Engine with Refresh Token Rotation | P0 — Critical | Core Cryptography Libraries | Phase 3: Backend Development |
+| RBAC Middleware Pipeline | P0 — Critical | JWT Engine | Phase 3: Backend Development |
+| Web Dashboard SPA | P0 — Critical | React 18 / Zustand | Phase 4: Frontend Development |
+| Dynamic Hazard Event Dispatcher | P1 — High | Simulation Engine | Phase 2: Simulation Core |
+| React Native App Shell | P1 — High | Expo Platform | Phase 8a: Mobile Integration |
+| Push Notification System | P2 — Medium | Cron Jobs / Expo Push SDK | Phase 8a: Mobile Integration |
+| Cooperative Joint Households | P3 — Future | Redis / WebSockets | Phase 8b: Multiplayer Ecosystem |
+| AI Personal Finance Coach | P3 — Future | LLM API / RAG Architecture | Phase 8b: Multiplayer Ecosystem |
 
 ## Phase 0: Foundation & Engineering Setup
 
@@ -463,7 +828,7 @@ This phase covers zero product features. It is strictly limited to repository in
 
 ## Database
 - Configure Local MongoDB in `docker-compose.yml` to simulate MongoDB Atlas locally.
-- Write a simple initialization script to create the `fls_main_collection` in Local MongoDB on container startup.
+- Write a simple initialization script to create the `simulator_entities` collection and its compound index `{ pk: 1, sk: 1 }` in Local MongoDB on container startup.
 
 ## UI / UX
 - *Not applicable for this phase.*
@@ -546,12 +911,14 @@ This phase focuses entirely on the visual presentation and frontend component st
 
 ## UI / UX
 - **Design Philosophy:** Clean, modern, "FinTech" aesthetic. Avoid overly playful/childish game UI; it must look like a serious financial tool to build trust.
-- **Color Palette:** 
-  - Primary: Deep Trust Blue.
-  - Success/Assets: Forest Green.
-  - Danger/Debt: Alert Red.
-  - Background: Off-white/Light Gray to reduce eye strain during long sessions.
-- **Accessibility:** Ensure high contrast ratios for text and colorblind-safe palettes for charts.
+- **Color Palette:** Use the canonical Design System tokens defined in **Section 9**:
+  - Primary: `slate-900` (dark, trustworthy banking feel).
+  - Accent/CTA: `indigo-600` (active states, primary buttons).
+  - Success/Assets: `emerald-500` (income, portfolio growth).
+  - Danger/Debt: `rose-500` (expenses, debt, market crashes).
+  - Warning: `amber-500` (low emergency fund, pending alerts).
+  - Background: `gray-50` (light mode) / `gray-900` (dark mode).
+- **Accessibility:** All text must pass WCAG AA contrast ratios (4.5:1 minimum). Use colorblind-safe palettes for all charts — never rely on color alone to convey meaning.
 
 ## Risks
 - **Design Paralysis:** Spending too much time debating button border-radius rather than building.
@@ -605,7 +972,7 @@ The Simulation Core is the absolute brain of this project. If the financial math
 - Build the pure mathematical engine (`SimulationEngine`).
 - Define the exact JSON schema for `PlayerState` and `Decisions`.
 - Implement the exact business rules extracted from the NCFE research (Taxes, SIPs, EMIs).
-- Create a deterministic Random Event Generator for life hazards.
+- Create a deterministic Hazard Event Generator for life hazards.
 
 ## Scope
 This phase focuses exclusively on the backend `engine/` directory. There is NO database integration and NO network request handling. It is purely data-in, data-out logic.
@@ -694,7 +1061,7 @@ This phase covers the entire Node.js/Express infrastructure. It stops at the API
 ## Deliverables
 - `auth` controller (`/register`, `/login`).
 - `simulation` controller (`/state`, `/advance-month`, `/history`).
-- MongoDB Atlas Repositories for fetching/saving User and State objects.
+- Mongoose repository classes for fetching and saving `PlayerState`, `Profile`, and `Ledger` documents.
 - Zod validation schemas for all incoming POST requests.
 - API Documentation (e.g., Swagger/OpenAPI spec or Postman Collection).
 
@@ -705,7 +1072,7 @@ This phase covers the entire Node.js/Express infrastructure. It stops at the API
 ## Backend
 - Setup Express Router and modularize routes.
 - Implement Middleware for JWT verification and global error handling.
-- Write MongoDB Atlas Mongoose models to perform `GetItem`, `PutItem`, and `Query`.
+- Write Mongoose model wrappers to perform `findOne()`, `replaceOne()` (upsert), and `find()` queries on the `simulator_entities` collection.
 - **The Orchestration Flow:** The `/advance-month` route must: 
   1. Fetch `OldState` from DB.
   2. Pass `OldState` to `SimulationEngine`.
@@ -717,7 +1084,7 @@ This phase covers the entire Node.js/Express infrastructure. It stops at the API
 
 ## Database
 - Create the local MongoDB Atlas collections.
-- Define the Partition Key (`PK`) and Sort Key (`SK`) patterns in the repository code.
+- Define the `pk` and `sk` field naming conventions in the Mongoose schema, aligned with the Single-Collection Design pattern documented in Section 3.
 
 ## UI / UX
 - *Not applicable for this phase.*
@@ -734,7 +1101,7 @@ This phase covers the entire Node.js/Express infrastructure. It stops at the API
 
 ## Definition of Done
 - A developer can use Postman to register an account, fetch their state, and successfully advance the simulation by 1 month.
-- All API routes return the correct HTTP status codes.
+- All API routes return correct HTTP status codes and trigger Hazard Events at the expected probability.
 
 ## Milestone
 **Milestone 4:** Backend APIs Complete.
@@ -772,7 +1139,7 @@ With the backend APIs live, the UI/UX components built in Phase 1 must now be wi
 ## Objectives
 - Integrate React Router for navigation between Auth, Dashboard, and Reports.
 - Build the API Client (`axios` interceptors for JWT injection).
-- Connect the React Context provider to manage the global `PlayerState`.
+- Connect the **Zustand** store to manage the global `PlayerState` (simulation state). Authentication status is handled separately via `AuthContext` as a lightweight React context.
 - Implement `Recharts` to draw the historical Net Worth progression.
 
 ## Scope
@@ -792,7 +1159,7 @@ This phase covers data fetching, state management, and chart rendering on the cl
 - *Not applicable for this phase.*
 
 ## Frontend
-- Set up an `AuthContext` to hold the JWT in memory (or secure `localStorage`).
+- Set up an `AuthContext` to hold **only the authentication status and userId** in React state (token held exclusively in memory, never persisted to `localStorage` or `sessionStorage` — see Security section).
 - Create custom hooks (e.g., `useSimulation()`) to abstract API calls away from the UI components.
 - Wire up the Event Modal: When `/advance-month` returns an `eventTriggered` object, display a popup describing the hazard (e.g., "Medical Emergency") before refreshing the dashboard numbers.
 
@@ -852,7 +1219,7 @@ While the frontend and backend have been built and tested in isolation, the poin
 
 ## Objectives
 - Remove all mock data from the Frontend React application.
-- Ensure the Frontend correctly handles and visualizes the Backend's Random Events.
+- Ensure the Frontend correctly handles and visualizes the Backend's Hazard Events.
 - Verify CORS configuration allows communication between the Vite dev server and Express.
 - Audit the end-to-end performance of a full simulation run (from Month 1 to Month 600).
 
@@ -1009,11 +1376,11 @@ A local application is invisible to the internship evaluators. We must move the 
 ## Objectives
 - Containerize the Backend Node.js application via Docker.
 - Compile and bundle the Frontend React application.
-- Deploy the MongoDB Atlas collection to production.
+- Provision the production MongoDB Atlas cluster and deploy the backend container to Render.
 - Set up domain routing and SSL certificates.
 
 ## Scope
-This phase transitions the system from Local MongoDB to production services (Vercel/Render).
+This phase transitions the system from Local MongoDB to production AWS services (or equivalent platforms like Vercel/Render, if budget is constrained).
 
 ## Deliverables
 - `Dockerfile` for the Node.js backend.
@@ -1025,8 +1392,8 @@ This phase transitions the system from Local MongoDB to production services (Ver
 - Phase 6 (QA) must be completed. RC1 must be tagged in Git.
 
 ## Backend
-- Update the AWS SDK configuration in the codebase to use production credentials (via IAM Roles, NOT hardcoded keys) instead of pointing to `localhost:4566`.
-- Deploy the Docker container to Render or ECS.
+- Update the MongoDB Atlas connection string in the codebase to use the production cluster URI (via environment variables, NOT hardcoded credentials) before deploying to Render.
+- Deploy the Docker container to **Render** (Web Service). Render auto-deploys on push to `main` via its GitHub integration.
 
 ## Frontend
 - Run `npm run build` to generate the production optimized static bundle.
@@ -1035,14 +1402,14 @@ This phase transitions the system from Local MongoDB to production services (Ver
 
 ## Database
 - Provision a real MongoDB Atlas collection via the MongoDB Atlas Console or Terraform.
-- Ensure On-Demand capacity is selected to minimize idle costs.
+- Ensure the MongoDB Atlas free tier (M0 cluster) is used for MVP. Upgrade to M10 only when the product scales beyond the free tier limits.
 
 ## UI / UX
 - *Not applicable for this phase.*
 
 ## Risks
 - **Deployment Costs:** Leaving infrastructure running post-internship can accrue massive AWS bills.
-  - *Mitigation:* Document teardown scripts. Set AWS Billing Alarms to trigger at $10.
+  - *Mitigation:* Document teardown scripts. Set billing alerts on Render, Vercel, and MongoDB Atlas dashboards to trigger at $10 combined monthly spend.
 - **Environment Variable Leaks:** Accidentally committing production `.env` files to GitHub.
   - *Mitigation:* Double-check `.gitignore`. Use GitHub Secrets for CI/CD injection.
 
@@ -1061,7 +1428,7 @@ This phase transitions the system from Local MongoDB to production services (Ver
 Backend
 - Write `Dockerfile`.
 - Provision Render and MongoDB Atlas collection.
-- Configure AWS IAM Policies.
+- Configure Environment Variables.
 
 Frontend
 - Configure Supabase Storage and Vercel.
@@ -1089,7 +1456,7 @@ With the internship successfully completed and graded, the team can pivot the MV
 ## Objectives
 - Integrate Large Language Models (LLMs) to serve as a personalized AI Financial Coach.
 - Implement Multiplayer architecture (Co-Op households).
-- Transition from static Random Events to a dynamic Macro-Economy simulation.
+- Transition from static Hazard Events to a dynamic Macro-Economy simulation.
 - Introduce an Asset Marketplace for realistic stock trading and real estate.
 
 ## Scope
@@ -1104,15 +1471,57 @@ This phase represents the next 6-12 months of startup development. It requires s
 - Phase 7 (Deployment) and the successful completion of the internship.
 
 ## Backend
-- **Multiplayer Migration:** Introduce WebSockets (Socket.io or API Gateway WebSockets) to sync state between two users playing as a "Household" (e.g., Husband and Wife).
-- **Caching:** Introduce Redis to handle real-time locking so both players must confirm their monthly decisions before the engine ticks.
+- **Multiplayer Migration:** Introduce WebSockets (Socket.io) to sync state between two users playing as a "Household" (e.g., Husband and Wife). Socket.io runs on the same Render-deployed Node.js process in the early startup phase, with a horizontal scale-out to a dedicated Socket.io cluster once user traffic demands it.
+- **Distributed State Locking:** Introduce Redis to handle real-time locking so both players must confirm their monthly decisions before the engine advances the turn.
+
+### Redis-Locked Multiplayer State Synchronization
+In cooperative Household mode, both players may submit state updates simultaneously. To prevent conflicting writes, the platform integrates a Redis-backed distributed lock manager ensuring state transitions are processed sequentially:
+
+```typescript
+import Redis from 'ioredis';
+import { v4 as uuidv4 } from 'uuid';
+
+const redis = new Redis(process.env.REDIS_URL);
+
+async function processHouseholdTurn(
+  householdId: string,
+  turnUpdateLogic: () => Promise<void>
+): Promise<void> {
+  const lockKey = `locks:household:${householdId}`;
+  const lockToken = uuidv4();
+  const lockExpiration = 10_000; // 10 seconds — auto-expiry prevents deadlocks
+
+  const acquired = await redis.set(lockKey, lockToken, 'PX', lockExpiration, 'NX');
+
+  if (!acquired) {
+    throw new Error('HOUSEHOLD_LOCK_FAILED: Simultaneous turn advancement in progress.');
+  }
+
+  try {
+    await turnUpdateLogic();
+  } finally {
+    // Atomic release via Lua script — only releases if the token matches
+    const releaseScript = `
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("del", KEYS[1])
+      else
+        return 0
+      end
+    `;
+    await redis.eval(releaseScript, 1, lockKey, lockToken);
+  }
+}
+```
+*Purpose: Guarantees that only one player can advance the shared household simulation state at a time.*  
+*Security: The Lua atomic release prevents the lock from being freed by any process that did not acquire it.*  
+*Scalability: Redis TTL auto-expiry ensures a crashed process never holds the lock permanently.*
 
 ## Frontend
 - Build a chat interface for the "AI Coach" using a streaming text response component.
 - Build the Global Marketplace screens.
 
 ## Database
-- Refactor the MongoDB Atlas single-collection design to support `HOUSEHOLD` partition keys instead of individual `USER` keys.
+- Refactor the MongoDB Atlas Single-Collection Design to support `HOUSEHOLD` partition keys (e.g., `pk=HOUSEHOLD#ID`) in addition to individual `USER` keys.
 
 ## UI / UX
 - Redesign the Dashboard to accommodate dual-player metrics.
@@ -1121,7 +1530,7 @@ This phase represents the next 6-12 months of startup development. It requires s
 - **LLM Hallucinations:** The AI Coach giving genuinely bad financial advice.
   - *Mitigation:* The LLM must be strictly prompted to *explain* the math, never to prescribe investment strategies. It must run in a highly constrained RAG (Retrieval-Augmented Generation) pipeline.
 - **WebSocket Scaling:** Handling thousands of concurrent TCP connections.
-  - *Mitigation:* Rely on managed services like AWS API Gateway WebSockets rather than self-hosting a massive Redis pub/sub cluster early on.
+  - *Mitigation:* Rely on managed WebSocket support from **Render** (Socket.io on the same Node.js process) rather than self-hosting a massive Redis pub/sub cluster in the early startup phase.
 
 ## Testing
 - Introduce chaos testing to handle dropped WebSocket connections gracefully.
@@ -1181,7 +1590,7 @@ We will execute this project following the Scrum framework customized for async 
 - **Daily Sync:** A 15-minute daily standup (synchronous or async text) answering: What did you do? What are you doing? Are you blocked?
 
 ## 4. Branch Strategy
-- `main`: Production-ready code only. Highly protected. Deploys automatically to AWS.
+- `main`: Production-ready code only. Highly protected. Deploys automatically to **Vercel** (frontend) and **Render** (backend) via GitHub integration.
 - `develop`: Integration branch. The default target for all new features.
 - `feature/<ticket-number>-<short-desc>`: Created off `develop` for active work (e.g., `feature/42-auth-api`).
 - `fix/<ticket-number>-<short-desc>`: Created off `develop` for bug fixes.
@@ -1212,12 +1621,15 @@ A feature or phase is NOT complete until it meets the following criteria:
 - **Milestone 8:** Project Live (MVP Complete) (Phase 7)
 - **Milestone 9:** Seed Funding Pitch (Phase 8)
 
+---
 
 # Section 14: Summary of Architectural Best Practices
+
 To deliver an educational tool that effectively teaches real-world financial skills, developers must combine mathematical accuracy, system security, and intentional behavioral mechanics:
 
-- **Implement Practical Behavioral Mechanics:** Rather than relying on simple text explanations, the system forces players to experience the direct, compounding consequences of common cognitive biases, such as loss aversion and hyperbolic discounting.
-- **Ensure Accurate Tax Engine Calculations:** The math engine must accurately mirror current direct tax codes, including New Tax Regime brackets, standard deductions, and Section 87A marginal relief calculations. This helps players develop practical, transferrable financial planning skills.
-- **Maintain Strict Data Integrity and Performance:** Grouping user profiles, active states, and historical snapshots into a single polymorphic MongoDB collection eliminates relational joins, keeping read/write response times under ten milliseconds.
-- **Balance Security with User Experience:** The platform applies secure session policies, including Argon2id password hashing and rotating refresh tokens, while grace windows prevent minor mobile network drops from logging out legitimate users.
-- **Incorporate Realistic Digital Safety Scenarios:** By integrating simulation-based "Hazard Events" that mimic current UPI and QR code scams, the platform teaches digital financial safety alongside traditional wealth management principles. This approach helps build digital resilience and trust in formal financial institutions.
+- **Implement Practical Behavioral Mechanics:** Rather than relying on simple text explanations, the system forces players to experience the direct, compounding consequences of common cognitive biases — loss aversion, hyperbolic discounting, and herding behaviors. This experiential design is the core educational differentiator.
+- **Ensure Accurate Tax Engine Calculations:** The Simulation Engine must accurately mirror current Indian direct tax codes, including New Tax Regime brackets, the ₹75,000 standard deduction, and Section 87A marginal relief for income between ₹12L and ₹12.75L. This helps players develop practical, transferrable financial planning skills.
+- **Maintain Strict Data Integrity and Performance:** Grouping all user documents — profiles, active simulation states, and historical ledger snapshots — into a single `simulator_entities` collection with a `{ pk: 1, sk: 1 }` compound index eliminates relational joins, keeping read/write response times under ten milliseconds at MVP scale.
+- **Balance Security with User Experience:** The platform applies bank-grade session policies — Argon2id password hashing, rotating Refresh Tokens with reuse detection, and HttpOnly cookies — while keeping the user experience frictionless. Grace windows on the Refresh Token endpoint prevent minor mobile network drops from logging out legitimate players.
+- **Incorporate Realistic Digital Safety Scenarios:** By integrating simulation-based Hazard Events that mimic current UPI collect request scams, QR code fraud, and predatory instant loan apps, the platform teaches digital financial safety alongside traditional wealth management principles. This approach builds digital resilience and trust in formal financial institutions.
+- **Design Extensible Authorization:** The current RBAC model — embedding `role`, `permissions`, and `tenantId` as JWT claims — provides a scalable MVP foundation that avoids database round-trips on every request. As the platform transitions to a B2B school district model, the middleware chain is designed to evolve into **Attribute-Based Access Control (ABAC)** (permissions based on user grade level or subscription tier) or **Policy-Based Access Control (PBAC)** (e.g., "Educators can only view student data during school hours") without requiring rewrites to core simulation logic.
